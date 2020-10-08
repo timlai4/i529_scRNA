@@ -1,0 +1,100 @@
+---
+title: "scRNA-seq"
+author: "Tim Lai"
+date: "4/21/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Libraries
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+library(sctransform)
+library(clustree)
+```
+
+## Input Pipeline
+Read in the file and create a seurat object.
+
+```{r}
+setwd("C:/users/Tim/Documents")
+raw_counts <- read.table("GSE126074_CellLineMixture_SNAREseq_cDNA_counts.tsv")
+
+seurat_obj <- CreateSeuratObject(counts = raw_counts)
+seurat_obj
+```
+
+## Preprocessing and Normalizations
+
+### Filtering
+We detect genes with relatively high mitochondrial content and extreme RNA features for filtering.
+```{r}
+seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^MT-")
+```
+
+Violin plot
+```{r, echo=FALSE}
+VlnPlot(seurat_obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r, echo=FALSE}
+FeatureScatter(seurat_obj, feature1 = "nFeature_RNA", feature2 = "percent.mt")
+```
+
+
+Based on these plots, we cut off mitochondrial content at 15%. In addition, we target genes with between 200 and 1700 RNA features.
+```{r}
+seurat_obj <- subset(seurat_obj, subset = nFeature_RNA > 200 & nFeature_RNA < 1700 & percent.mt < 15 & percent.mt > 2)
+```
+
+### Normalization
+```{r, warning=FALSE}
+seurat_obj <- SCTransform(seurat_obj, vars.to.regress = "percent.mt", verbose = FALSE)
+```
+## Clustering
+### PCA
+```{r}
+seurat_obj <- RunPCA(seurat_obj, npcs = 30, verbose = FALSE)
+
+```
+
+
+```{r, echo=FALSE}
+ElbowPlot(seurat_obj)
+```
+
+From the plot, we determine we should use the first ten principal components.
+
+## Make a bunch of clusters
+
+```{r, message=FALSE}
+seurat_obj <- FindNeighbors(seurat_obj, dims = 1:10)
+seurat_obj <- FindClusters(seurat_obj, resolution = seq(0.2, 2.0, 0.2))
+```
+
+## Evaluate clusters
+From the cluster tree, we see that tree starts splitting at 0.8. Therefore, we opt for a resolution of 0.2.
+```{r, echo=FALSE}
+clustree(seurat_obj, prefix = "SCT_snn_res.")
+```
+
+Set resolution to 0.2
+```{r}
+Idents(seurat_obj) <- "SCT_snn_res.0.2"
+```
+
+## UMAP
+```{r}
+seurat_obj <- RunUMAP(seurat_obj, dims=1:10)
+```
+
+```{r}
+DimPlot(seurat_obj, group.by="ident", reduction = "umap")
+```
